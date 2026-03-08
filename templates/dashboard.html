@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - FinLend{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h2 class="mb-1">User Dashboard</h2>
+        <p class="text-muted mb-0">Track your applications and manage loans.</p>
+    </div>
+    <a href="{{ url_for('apply_loan') }}" class="btn btn-finlend">Apply for New Loan</a>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card stats-card border-0 shadow-sm">
+            <div class="card-body">
+                <p class="small text-muted mb-1">Total Applications</p>
+                <h4 class="mb-0">{{ stats.total }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card stats-card border-0 shadow-sm">
+            <div class="card-body">
+                <p class="small text-muted mb-1">Pending</p>
+                <h4 class="mb-0 text-warning">{{ stats.pending }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card stats-card border-0 shadow-sm">
+            <div class="card-body">
+                <p class="small text-muted mb-1">Approved</p>
+                <h4 class="mb-0 text-success">{{ stats.approved }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card stats-card border-0 shadow-sm">
+            <div class="card-body">
+                <p class="small text-muted mb-1">Rejected</p>
+                <h4 class="mb-0 text-danger">{{ stats.rejected }}</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm finlend-card">
+            <div class="card-header bg-white border-0 pt-4 px-4">
+                <h5 class="mb-0">Loan History</h5>
+            </div>
+            <div class="card-body p-4">
+                {% if loans %}
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Amount</th>
+                                <th>Type</th>
+                                <th>Purpose</th>
+                                <th>Status</th>
+                                <th>Applied On</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for loan in loans %}
+                            <tr>
+                                <td>#{{ loan.id }}</td>
+                                <td>?{{ "{:,.0f}".format(loan.loan_amount) }}</td>
+                                <td>{{ loan.employment_type }}</td>
+                                <td>{{ loan.loan_purpose }}</td>
+                                <td>
+                                    {% if loan.status == 'Pending' %}
+                                        <span class="badge text-bg-warning">Pending</span>
+                                    {% elif loan.status == 'Approved' %}
+                                        <span class="badge text-bg-success">Approved</span>
+                                    {% else %}
+                                        <span class="badge text-bg-danger">Rejected</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ loan.created_at.strftime('%d %b %Y') }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                    <p class="text-muted mb-0">No applications yet. Submit your first loan request.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm finlend-card mb-4">
+            <div class="card-body p-4">
+                <h6 class="mb-3">EMI Calculator</h6>
+                <form id="emi-form" class="small-form">
+                    <div class="mb-2">
+                        <label class="form-label">Loan Amount (?)</label>
+                        <input type="number" min="1" class="form-control" id="emi-amount" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Interest Rate (% yearly)</label>
+                        <input type="number" min="0" step="0.01" class="form-control" id="emi-rate" value="10" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Tenure (months)</label>
+                        <input type="number" min="1" class="form-control" id="emi-tenure" value="12" required>
+                    </div>
+                    <button class="btn btn-outline-primary w-100" type="submit">Calculate EMI</button>
+                </form>
+                <div class="result-box mt-3" id="emi-result"></div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm finlend-card">
+            <div class="card-body p-4">
+                <h6 class="mb-3">Quick Eligibility Check</h6>
+                <form id="eligibility-form" class="small-form">
+                    <div class="mb-2">
+                        <label class="form-label">Monthly Income (?)</label>
+                        <input type="number" min="1" class="form-control" id="elig-income" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Existing EMI (?)</label>
+                        <input type="number" min="0" class="form-control" id="elig-existing-emi" value="0" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Requested Loan (?)</label>
+                        <input type="number" min="1" class="form-control" id="elig-loan" required>
+                    </div>
+                    <button class="btn btn-outline-success w-100" type="submit">Check</button>
+                </form>
+                <div class="result-box mt-3" id="eligibility-result"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

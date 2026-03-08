@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Apply Loan - FinLend{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-xl-10">
+        <div class="card border-0 shadow finlend-card">
+            <div class="card-body p-4 p-lg-5">
+                <h3 class="mb-2">Loan Application Form</h3>
+                <p class="text-muted mb-4">Fill in your details carefully. Status will start as <strong>Pending</strong>.</p>
+
+                <form method="POST" id="apply-form" novalidate>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Full name</label>
+                            <input type="text" name="full_name" class="form-control" value="{{ user.full_name if user else '' }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Email</label>
+                            <input type="email" name="email" class="form-control" value="{{ user.email if user else '' }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Phone</label>
+                            <input type="text" name="phone" class="form-control" value="{{ user.phone if user else '' }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Address</label>
+                            <input type="text" name="address" class="form-control" value="{{ user.address if user else '' }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Income (Monthly ?)</label>
+                            <input type="number" step="0.01" min="1" id="apply-income" name="income" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Employment type</label>
+                            <select name="employment_type" class="form-select" required>
+                                <option value="">Select</option>
+                                <option value="Salaried">Salaried</option>
+                                <option value="Self-Employed">Self-Employed</option>
+                                <option value="Business">Business</option>
+                                <option value="Student">Student</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Loan amount (?)</label>
+                            <input type="number" step="0.01" min="1" id="apply-loan-amount" name="loan_amount" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Loan purpose</label>
+                            <input type="text" name="loan_purpose" class="form-control" placeholder="Education, Business expansion..." required>
+                        </div>
+                    </div>
+
+                    <div id="apply-eligibility-result" class="result-box mt-3"></div>
+
+                    <div class="d-flex gap-2 mt-4 flex-wrap">
+                        <button type="submit" class="btn btn-finlend">Submit Application</button>
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Back to Dashboard</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

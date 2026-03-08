@@ -1,0 +1,78 @@
+:root {
+    --finlend-primary: #0a4f8a;
+    --finlend-secondary: #0f766e;
+    --finlend-bg: #f4f8fc;
+    --finlend-text: #0f172a;
+}
+
+body {
+    background: linear-gradient(180deg, #eef5ff 0%, #f9fbff 45%, #ffffff 100%);
+    color: var(--finlend-text);
+    min-height: 100vh;
+}
+
+.finlend-navbar {
+    background: linear-gradient(90deg, var(--finlend-primary), #0a6ab3);
+}
+
+.finlend-navbar .navbar-brand,
+.finlend-navbar .nav-link {
+    color: #ffffff !important;
+}
+
+.finlend-navbar .nav-link {
+    opacity: 0.92;
+}
+
+.finlend-navbar .nav-link:hover {
+    opacity: 1;
+}
+
+.finlend-card {
+    border-radius: 14px;
+    background: #ffffff;
+}
+
+.stats-card {
+    border-radius: 12px;
+}
+
+.btn-finlend {
+    background: linear-gradient(90deg, var(--finlend-primary), #0a6ab3);
+    border: none;
+    color: #fff;
+}
+
+.btn-finlend:hover {
+    color: #fff;
+    background: linear-gradient(90deg, #083f6d, #095a97);
+}
+
+.result-box {
+    min-height: 38px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    padding: 8px 10px;
+    font-size: 0.92rem;
+}
+
+.admin-table td,
+.admin-table th {
+    vertical-align: middle;
+}
+
+.small-form .form-control {
+    font-size: 0.92rem;
+}
+
+footer {
+    border-top: 1px solid #e2e8f0;
+    background: #ffffff;
+}
+
+@media (max-width: 768px) {
+    .card-body {
+        padding: 1rem !important;
+    }
+}
