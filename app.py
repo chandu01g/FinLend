@@ -1,4 +1,7 @@
+import math
+import random
 import re
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, Dict, List
 
@@ -11,6 +14,10 @@ from config import Config
 app = Flask(__name__)
 app.config.from_object(Config)
 app.secret_key = app.config["SECRET_KEY"]
+
+OTP_EXPIRY_MINUTES = 5
+OTP_MAX_ATTEMPTS = 5
+OTP_RESEND_COOLDOWN_SECONDS = 30
 
 
 def get_db_connection():
@@ -71,12 +78,16 @@ def admin_required(view):
     return wrapped_view
 
 
+def normalize_phone(phone: str) -> str:
+    return re.sub(r"\D", "", phone or "")
+
+
 def valid_email(email: str) -> bool:
     return bool(re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", email))
 
 
 def valid_phone(phone: str) -> bool:
-    digits = re.sub(r"\D", "", phone)
+    digits = normalize_phone(phone)
     return 10 <= len(digits) <= 15
 
 
@@ -87,6 +98,32 @@ def check_eligibility(income: float, loan_amount: float) -> bool:
     - Maximum loan: 20x monthly income
     """
     return income >= 15000 and loan_amount <= (income * 20)
+
+
+def calculate_loan_breakdown(principal: float, annual_rate: float, months: int) -> Dict[str, float]:
+    """Return EMI, total interest, and total payable values."""
+    monthly_rate = annual_rate / 1200
+
+    if monthly_rate == 0:
+        emi = principal / months
+    else:
+        factor = math.pow(1 + monthly_rate, months)
+        emi = (principal * monthly_rate * factor) / (factor - 1)
+
+    total_payable = emi * months
+    total_interest = total_payable - principal
+
+    return {
+        "emi_amount": round(emi, 2),
+        "total_interest": round(total_interest, 2),
+        "total_payable": round(total_payable, 2),
+    }
+
+
+def get_request_payload() -> Dict[str, Any]:
+    if request.is_json:
+        return request.get_json(silent=True) or {}
+    return request.form.to_dict()
 
 
 def seed_default_admin():
@@ -111,8 +148,22 @@ def seed_default_admin():
 def serialize_loan(loan: Dict[str, Any]) -> Dict[str, Any]:
     """Convert MySQL row values to JSON-friendly types."""
     item = dict(loan)
-    item["income"] = float(item["income"])
-    item["loan_amount"] = float(item["loan_amount"])
+
+    numeric_fields = [
+        "income",
+        "loan_amount",
+        "annual_interest_rate",
+        "emi_amount",
+        "total_interest",
+        "total_payable",
+    ]
+    for field in numeric_fields:
+        if field in item and item[field] is not None:
+            item[field] = float(item[field])
+
+    if "tenure_months" in item and item["tenure_months"] is not None:
+        item["tenure_months"] = int(item["tenure_months"])
+
     item["created_at"] = item["created_at"].isoformat() if item.get("created_at") else None
     item["updated_at"] = item["updated_at"].isoformat() if item.get("updated_at") else None
     return item
@@ -127,12 +178,137 @@ def home():
     return redirect(url_for("login"))
 
 
+@app.route("/api/auth/send-otp", methods=["POST"])
+def send_otp():
+    payload = get_request_payload()
+    phone = normalize_phone(payload.get("phone", ""))
+    purpose = (payload.get("purpose", "register") or "register").strip().lower()
+
+    if purpose not in {"register"}:
+        return jsonify({"success": False, "message": "Invalid OTP purpose."}), 400
+    if not valid_phone(phone):
+        return jsonify({"success": False, "message": "Please enter a valid phone number."}), 400
+
+    try:
+        latest = run_select(
+            """
+            SELECT id, created_at
+            FROM phone_otps
+            WHERE phone = %s AND purpose = %s
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (phone, purpose),
+            one=True,
+        )
+
+        if latest and latest.get("created_at"):
+            elapsed = (datetime.utcnow() - latest["created_at"]).total_seconds()
+            if elapsed < OTP_RESEND_COOLDOWN_SECONDS:
+                wait_seconds = int(OTP_RESEND_COOLDOWN_SECONDS - elapsed)
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "message": f"Please wait {wait_seconds}s before requesting another OTP.",
+                        }
+                    ),
+                    429,
+                )
+
+        code = f"{random.randint(100000, 999999)}"
+        code_hash = generate_password_hash(code)
+        expires_at = datetime.utcnow() + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+        run_modify("DELETE FROM phone_otps WHERE phone = %s AND purpose = %s", (phone, purpose))
+        run_modify(
+            """
+            INSERT INTO phone_otps (phone, purpose, otp_hash, expires_at, attempts, is_verified)
+            VALUES (%s, %s, %s, %s, 0, 0)
+            """,
+            (phone, purpose, code_hash, expires_at),
+        )
+
+        response = {
+            "success": True,
+            "message": "OTP generated successfully. Check your SMS inbox.",
+            "expires_in_seconds": OTP_EXPIRY_MINUTES * 60,
+        }
+
+        # Development convenience: show OTP in UI when debug is enabled.
+        if app.config.get("OTP_DEBUG_MODE", False):
+            response["demo_otp"] = code
+            response["demo_sms_format"] = (
+                f"<#> FinLend OTP is {code}. Do not share this code.\n"
+                f"@{app.config['OTP_AUTOFILL_ORIGIN']} #{code}"
+            )
+
+        return jsonify(response)
+    except mysql.connector.Error as exc:
+        return jsonify({"success": False, "message": str(exc)}), 500
+
+
+@app.route("/api/auth/verify-otp", methods=["POST"])
+def verify_otp():
+    payload = get_request_payload()
+    phone = normalize_phone(payload.get("phone", ""))
+    otp = str(payload.get("otp", "")).strip()
+    purpose = (payload.get("purpose", "register") or "register").strip().lower()
+
+    if purpose not in {"register"}:
+        return jsonify({"success": False, "message": "Invalid OTP purpose."}), 400
+    if not valid_phone(phone):
+        return jsonify({"success": False, "message": "Please enter a valid phone number."}), 400
+    if not re.fullmatch(r"\d{6}", otp):
+        return jsonify({"success": False, "message": "OTP must be a 6-digit number."}), 400
+
+    try:
+        otp_row = run_select(
+            """
+            SELECT id, otp_hash, expires_at, attempts, is_verified
+            FROM phone_otps
+            WHERE phone = %s AND purpose = %s
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (phone, purpose),
+            one=True,
+        )
+
+        if not otp_row:
+            return jsonify({"success": False, "message": "No OTP request found. Please send OTP first."}), 404
+
+        if otp_row["is_verified"]:
+            session[f"{purpose}_verified_phone"] = phone
+            return jsonify({"success": True, "message": "Phone already verified."})
+
+        if datetime.utcnow() > otp_row["expires_at"]:
+            return jsonify({"success": False, "message": "OTP expired. Please request a new OTP."}), 400
+
+        if otp_row["attempts"] >= OTP_MAX_ATTEMPTS:
+            return jsonify({"success": False, "message": "Maximum OTP attempts reached. Please request a new OTP."}), 429
+
+        if not check_password_hash(otp_row["otp_hash"], otp):
+            run_modify("UPDATE phone_otps SET attempts = attempts + 1 WHERE id = %s", (otp_row["id"],))
+            return jsonify({"success": False, "message": "Invalid OTP."}), 400
+
+        run_modify(
+            "UPDATE phone_otps SET is_verified = 1, verified_at = UTC_TIMESTAMP() WHERE id = %s",
+            (otp_row["id"],),
+        )
+        session[f"{purpose}_verified_phone"] = phone
+        return jsonify({"success": True, "message": "Phone number verified successfully."})
+    except mysql.connector.Error as exc:
+        return jsonify({"success": False, "message": str(exc)}), 500
+
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
         full_name = request.form.get("full_name", "").strip()
         email = request.form.get("email", "").strip().lower()
-        phone = request.form.get("phone", "").strip()
+        phone_raw = request.form.get("phone", "").strip()
+        phone = normalize_phone(phone_raw)
         address = request.form.get("address", "").strip()
         password = request.form.get("password", "")
         confirm_password = request.form.get("confirm_password", "")
@@ -153,6 +329,11 @@ def register():
             flash("Passwords do not match.", "danger")
             return render_template("register.html")
 
+        verified_phone = session.get("register_verified_phone")
+        if verified_phone != phone:
+            flash("Please verify your phone number using OTP before registering.", "warning")
+            return render_template("register.html")
+
         try:
             existing = run_select("SELECT id FROM users WHERE email = %s", (email,), one=True)
             if existing:
@@ -167,6 +348,7 @@ def register():
                 """,
                 (full_name, email, phone, address, password_hash),
             )
+            session.pop("register_verified_phone", None)
             flash("Registration successful. Please login.", "success")
             return redirect(url_for("login"))
         except mysql.connector.Error as exc:
@@ -216,7 +398,9 @@ def dashboard():
     try:
         loans: List[Dict[str, Any]] = run_select(
             """
-            SELECT id, income, employment_type, loan_amount, loan_purpose, status, created_at, updated_at
+            SELECT id, income, employment_type, loan_amount, loan_purpose, status,
+                   annual_interest_rate, tenure_months, emi_amount, total_interest, total_payable,
+                   created_at, updated_at
             FROM loan_applications
             WHERE user_id = %s
             ORDER BY created_at DESC
@@ -256,15 +440,29 @@ def apply_loan():
     if request.method == "POST":
         full_name = request.form.get("full_name", "").strip()
         email = request.form.get("email", "").strip().lower()
-        phone = request.form.get("phone", "").strip()
+        phone_raw = request.form.get("phone", "").strip()
+        phone = normalize_phone(phone_raw)
         address = request.form.get("address", "").strip()
         income_raw = request.form.get("income", "").strip()
         employment_type = request.form.get("employment_type", "").strip()
         loan_amount_raw = request.form.get("loan_amount", "").strip()
+        annual_interest_rate_raw = request.form.get("annual_interest_rate", "").strip()
+        tenure_months_raw = request.form.get("tenure_months", "").strip()
         loan_purpose = request.form.get("loan_purpose", "").strip()
 
         if not all(
-            [full_name, email, phone, address, income_raw, employment_type, loan_amount_raw, loan_purpose]
+            [
+                full_name,
+                email,
+                phone,
+                address,
+                income_raw,
+                employment_type,
+                loan_amount_raw,
+                annual_interest_rate_raw,
+                tenure_months_raw,
+                loan_purpose,
+            ]
         ):
             flash("All fields are required.", "danger")
             return render_template("apply_loan.html", user=user)
@@ -281,12 +479,20 @@ def apply_loan():
         try:
             income = float(income_raw)
             loan_amount = float(loan_amount_raw)
+            annual_interest_rate = float(annual_interest_rate_raw)
+            tenure_months = int(tenure_months_raw)
         except ValueError:
-            flash("Income and loan amount must be numbers.", "danger")
+            flash("Income, amount, interest rate, and installments must be valid numbers.", "danger")
             return render_template("apply_loan.html", user=user)
 
         if income <= 0 or loan_amount <= 0:
             flash("Income and loan amount must be greater than 0.", "danger")
+            return render_template("apply_loan.html", user=user)
+        if annual_interest_rate < 0 or annual_interest_rate > 60:
+            flash("Interest rate must be between 0 and 60.", "danger")
+            return render_template("apply_loan.html", user=user)
+        if tenure_months < 1 or tenure_months > 480:
+            flash("Installments must be between 1 and 480 months.", "danger")
             return render_template("apply_loan.html", user=user)
         if len(loan_purpose) < 5:
             flash("Loan purpose must be at least 5 characters.", "danger")
@@ -294,6 +500,8 @@ def apply_loan():
         if not check_eligibility(income, loan_amount):
             flash("You are currently not eligible for this loan amount.", "warning")
             return render_template("apply_loan.html", user=user)
+
+        breakdown = calculate_loan_breakdown(loan_amount, annual_interest_rate, tenure_months)
 
         try:
             # Keep user profile details synced with latest form submission.
@@ -308,8 +516,18 @@ def apply_loan():
             run_modify(
                 """
                 INSERT INTO loan_applications
-                (user_id, full_name, email, phone, address, income, employment_type, loan_amount, loan_purpose, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pending')
+                (
+                    user_id, full_name, email, phone, address,
+                    income, employment_type, loan_amount, annual_interest_rate,
+                    tenure_months, emi_amount, total_interest, total_payable,
+                    loan_purpose, status
+                )
+                VALUES (
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, 'Pending'
+                )
                 """,
                 (
                     session["user_id"],
@@ -320,10 +538,23 @@ def apply_loan():
                     income,
                     employment_type,
                     loan_amount,
+                    annual_interest_rate,
+                    tenure_months,
+                    breakdown["emi_amount"],
+                    breakdown["total_interest"],
+                    breakdown["total_payable"],
                     loan_purpose,
                 ),
             )
-            flash("Loan application submitted successfully. Status: Pending", "success")
+            flash(
+                (
+                    "Loan application submitted. "
+                    f"EMI: Rs {breakdown['emi_amount']:.2f} per month, "
+                    f"Installments: {tenure_months}, "
+                    f"Total interest: Rs {breakdown['total_interest']:.2f}."
+                ),
+                "success",
+            )
             return redirect(url_for("dashboard"))
         except mysql.connector.Error as exc:
             flash(f"Database error: {exc}", "danger")
@@ -372,7 +603,9 @@ def admin_dashboard():
         loans = run_select(
             """
             SELECT la.id, la.user_id, la.full_name, la.email, la.phone, la.income,
-                   la.employment_type, la.loan_amount, la.loan_purpose, la.status, la.created_at
+                   la.employment_type, la.loan_amount, la.annual_interest_rate,
+                   la.tenure_months, la.emi_amount, la.total_interest, la.total_payable,
+                   la.loan_purpose, la.status, la.created_at
             FROM loan_applications la
             ORDER BY la.created_at DESC
             """

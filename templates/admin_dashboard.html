@@ -53,7 +53,7 @@
     <div class="col-6 col-lg-2">
         <div class="card stats-card border-0 shadow-sm">
             <div class="card-body">
-                <p class="small text-muted mb-1">Approved ?</p>
+                <p class="small text-muted mb-1">Approved Rs</p>
                 <h6 class="mb-0 text-success">{{ "{:,.0f}".format(stats.approved_amount or 0) }}</h6>
             </div>
         </div>
@@ -72,9 +72,11 @@
                     <tr>
                         <th>ID</th>
                         <th>User</th>
-                        <th>Income</th>
                         <th>Amount</th>
-                        <th>Purpose</th>
+                        <th>Rate</th>
+                        <th>Installments</th>
+                        <th>EMI</th>
+                        <th>Total Interest</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
@@ -87,9 +89,11 @@
                             <div class="fw-semibold">{{ loan.full_name }}</div>
                             <div class="small text-muted">{{ loan.email }}</div>
                         </td>
-                        <td>?{{ "{:,.0f}".format(loan.income) }}</td>
-                        <td>?{{ "{:,.0f}".format(loan.loan_amount) }}</td>
-                        <td>{{ loan.loan_purpose }}</td>
+                        <td>Rs {{ "{:,.0f}".format(loan.loan_amount) }}</td>
+                        <td>{{ loan.annual_interest_rate }}%</td>
+                        <td>{{ loan.tenure_months }}</td>
+                        <td>Rs {{ "{:,.2f}".format(loan.emi_amount) }}</td>
+                        <td>Rs {{ "{:,.2f}".format(loan.total_interest) }}</td>
                         <td>
                             {% if loan.status == 'Pending' %}
                                 <span class="badge text-bg-warning">Pending</span>

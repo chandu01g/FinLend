@@ -5,7 +5,7 @@
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
         <h2 class="mb-1">User Dashboard</h2>
-        <p class="text-muted mb-0">Track your applications and manage loans.</p>
+        <p class="text-muted mb-0">Track your applications and repayment estimates.</p>
     </div>
     <a href="{{ url_for('apply_loan') }}" class="btn btn-finlend">Apply for New Loan</a>
 </div>
@@ -59,8 +59,10 @@
                             <tr>
                                 <th>ID</th>
                                 <th>Amount</th>
-                                <th>Type</th>
-                                <th>Purpose</th>
+                                <th>Rate</th>
+                                <th>Installments</th>
+                                <th>EMI / Month</th>
+                                <th>Total Interest</th>
                                 <th>Status</th>
                                 <th>Applied On</th>
                             </tr>
@@ -69,9 +71,11 @@
                         {% for loan in loans %}
                             <tr>
                                 <td>#{{ loan.id }}</td>
-                                <td>?{{ "{:,.0f}".format(loan.loan_amount) }}</td>
-                                <td>{{ loan.employment_type }}</td>
-                                <td>{{ loan.loan_purpose }}</td>
+                                <td>Rs {{ "{:,.0f}".format(loan.loan_amount) }}</td>
+                                <td>{{ loan.annual_interest_rate }}%</td>
+                                <td>{{ loan.tenure_months }}</td>
+                                <td>Rs {{ "{:,.2f}".format(loan.emi_amount) }}</td>
+                                <td>Rs {{ "{:,.2f}".format(loan.total_interest) }}</td>
                                 <td>
                                     {% if loan.status == 'Pending' %}
                                         <span class="badge text-bg-warning">Pending</span>
@@ -100,7 +104,7 @@
                 <h6 class="mb-3">EMI Calculator</h6>
                 <form id="emi-form" class="small-form">
                     <div class="mb-2">
-                        <label class="form-label">Loan Amount (?)</label>
+                        <label class="form-label">Loan Amount (Rs)</label>
                         <input type="number" min="1" class="form-control" id="emi-amount" required>
                     </div>
                     <div class="mb-2">
@@ -108,7 +112,7 @@
                         <input type="number" min="0" step="0.01" class="form-control" id="emi-rate" value="10" required>
                     </div>
                     <div class="mb-2">
-                        <label class="form-label">Tenure (months)</label>
+                        <label class="form-label">Installments (months)</label>
                         <input type="number" min="1" class="form-control" id="emi-tenure" value="12" required>
                     </div>
                     <button class="btn btn-outline-primary w-100" type="submit">Calculate EMI</button>
@@ -122,15 +126,15 @@
                 <h6 class="mb-3">Quick Eligibility Check</h6>
                 <form id="eligibility-form" class="small-form">
                     <div class="mb-2">
-                        <label class="form-label">Monthly Income (?)</label>
+                        <label class="form-label">Monthly Income (Rs)</label>
                         <input type="number" min="1" class="form-control" id="elig-income" required>
                     </div>
                     <div class="mb-2">
-                        <label class="form-label">Existing EMI (?)</label>
+                        <label class="form-label">Existing EMI (Rs)</label>
                         <input type="number" min="0" class="form-control" id="elig-existing-emi" value="0" required>
                     </div>
                     <div class="mb-2">
-                        <label class="form-label">Requested Loan (?)</label>
+                        <label class="form-label">Requested Loan (Rs)</label>
                         <input type="number" min="1" class="form-control" id="elig-loan" required>
                     </div>
                     <button class="btn btn-outline-success w-100" type="submit">Check</button>

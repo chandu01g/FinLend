@@ -1,20 +1,30 @@
 function formatCurrency(value) {
-    return new Intl.NumberFormat("en-IN", {
-        style: "currency",
-        currency: "INR",
-        maximumFractionDigits: 0,
-    }).format(value);
+    return `Rs ${new Intl.NumberFormat("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(value)}`;
 }
 
-function calculateEMI(principal, annualRate, months) {
+function calculateLoanBreakdown(principal, annualRate, months) {
     const monthlyRate = annualRate / 12 / 100;
+    let emi = 0;
 
     if (monthlyRate === 0) {
-        return principal / months;
+        emi = principal / months;
+    } else {
+        const pow = Math.pow(1 + monthlyRate, months);
+        emi = (principal * monthlyRate * pow) / (pow - 1);
     }
 
-    const pow = Math.pow(1 + monthlyRate, months);
-    return (principal * monthlyRate * pow) / (pow - 1);
+    const totalPayment = emi * months;
+    const totalInterest = totalPayment - principal;
+
+    return {
+        emi,
+        totalPayment,
+        totalInterest,
+        installments: months,
+    };
 }
 
 function renderApplyEligibility() {
@@ -42,6 +52,82 @@ function renderApplyEligibility() {
     }
 }
 
+function renderApplyLoanBreakdown() {
+    const amountInput = document.getElementById("apply-loan-amount");
+    const rateInput = document.getElementById("apply-interest-rate");
+    const tenureInput = document.getElementById("apply-tenure-months");
+    const output = document.getElementById("apply-loan-breakdown");
+
+    if (!amountInput || !rateInput || !tenureInput || !output) {
+        return;
+    }
+
+    const principal = Number(amountInput.value || 0);
+    const rate = Number(rateInput.value || 0);
+    const months = Number(tenureInput.value || 0);
+
+    if (principal <= 0 || months <= 0 || rate < 0) {
+        output.innerHTML = "EMI preview: enter amount, interest rate, and installments.";
+        return;
+    }
+
+    const breakdown = calculateLoanBreakdown(principal, rate, months);
+    output.innerHTML = `
+        <div><strong>EMI / Month:</strong> ${formatCurrency(breakdown.emi)}</div>
+        <div><strong>Installments:</strong> ${breakdown.installments}</div>
+        <div><strong>Total Interest:</strong> ${formatCurrency(breakdown.totalInterest)}</div>
+        <div><strong>Total Payable:</strong> ${formatCurrency(breakdown.totalPayment)}</div>
+    `;
+}
+
+let otpAbortController = null;
+
+function startOtpAutoRead(otpInput, statusEl, verifyCallback) {
+    const webOtpSupported = "OTPCredential" in window;
+    const secureForWebOtp =
+        window.location.protocol === "https:" ||
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
+
+    if (!webOtpSupported || !secureForWebOtp || !otpInput) {
+        return;
+    }
+
+    if (otpAbortController) {
+        otpAbortController.abort();
+    }
+
+    otpAbortController = new AbortController();
+
+    navigator.credentials
+        .get({ otp: { transport: ["sms"] }, signal: otpAbortController.signal })
+        .then((otpCredential) => {
+            if (!otpCredential || !otpCredential.code) {
+                return;
+            }
+            otpInput.value = otpCredential.code;
+            if (statusEl) {
+                statusEl.innerHTML = "<span class='text-info'>OTP auto-captured from SMS. Verifying...</span>";
+            }
+            if (verifyCallback) {
+                verifyCallback();
+            }
+        })
+        .catch(() => {
+            // Ignore WebOTP failures. Manual entry is fallback.
+        });
+}
+
+async function postJson(url, payload) {
+    const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    return { ok: response.ok, data };
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     const yearEl = document.getElementById("footer-year");
     if (yearEl) {
@@ -62,14 +148,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            const emi = calculateEMI(principal, rate, months);
-            const totalPayment = emi * months;
-            const totalInterest = totalPayment - principal;
-
+            const breakdown = calculateLoanBreakdown(principal, rate, months);
             result.innerHTML = `
-                <div><strong>Monthly EMI:</strong> ${formatCurrency(emi)}</div>
-                <div><strong>Total Interest:</strong> ${formatCurrency(totalInterest)}</div>
-                <div><strong>Total Payment:</strong> ${formatCurrency(totalPayment)}</div>
+                <div><strong>Monthly EMI:</strong> ${formatCurrency(breakdown.emi)}</div>
+                <div><strong>Installments:</strong> ${breakdown.installments}</div>
+                <div><strong>Total Interest:</strong> ${formatCurrency(breakdown.totalInterest)}</div>
+                <div><strong>Total Payment:</strong> ${formatCurrency(breakdown.totalPayment)}</div>
             `;
         });
     }
@@ -102,9 +186,86 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const applyIncome = document.getElementById("apply-income");
     const applyLoan = document.getElementById("apply-loan-amount");
+    const applyRate = document.getElementById("apply-interest-rate");
+    const applyTenure = document.getElementById("apply-tenure-months");
     if (applyIncome && applyLoan) {
         applyIncome.addEventListener("input", renderApplyEligibility);
         applyLoan.addEventListener("input", renderApplyEligibility);
         renderApplyEligibility();
+    }
+    if (applyLoan && applyRate && applyTenure) {
+        applyLoan.addEventListener("input", renderApplyLoanBreakdown);
+        applyRate.addEventListener("input", renderApplyLoanBreakdown);
+        applyTenure.addEventListener("input", renderApplyLoanBreakdown);
+        renderApplyLoanBreakdown();
+    }
+
+    const sendOtpBtn = document.getElementById("send-otp-btn");
+    const verifyOtpBtn = document.getElementById("verify-otp-btn");
+    const otpStatus = document.getElementById("otp-status");
+    const phoneInput = document.getElementById("register-phone");
+    const otpInput = document.getElementById("register-otp");
+
+    async function verifyOtpFlow() {
+        if (!phoneInput || !otpInput || !otpStatus) {
+            return;
+        }
+
+        const phone = phoneInput.value.trim();
+        const otp = otpInput.value.trim();
+
+        if (!phone || !otp) {
+            otpStatus.innerHTML = "<span class='text-danger'>Enter phone and OTP first.</span>";
+            return;
+        }
+
+        otpStatus.innerHTML = "<span class='text-info'>Verifying OTP...</span>";
+        const { ok, data } = await postJson("/api/auth/verify-otp", {
+            phone,
+            otp,
+            purpose: "register",
+        });
+
+        if (ok && data.success) {
+            otpStatus.innerHTML = "<span class='text-success'>Phone verified successfully. You can now register.</span>";
+            return;
+        }
+
+        otpStatus.innerHTML = `<span class='text-danger'>${data.message || "OTP verification failed."}</span>`;
+    }
+
+    if (sendOtpBtn) {
+        sendOtpBtn.addEventListener("click", async () => {
+            if (!phoneInput || !otpStatus || !otpInput) {
+                return;
+            }
+
+            const phone = phoneInput.value.trim();
+            if (!phone) {
+                otpStatus.innerHTML = "<span class='text-danger'>Enter phone number before requesting OTP.</span>";
+                return;
+            }
+
+            otpStatus.innerHTML = "<span class='text-info'>Sending OTP...</span>";
+            const { ok, data } = await postJson("/api/auth/send-otp", {
+                phone,
+                purpose: "register",
+            });
+
+            if (ok && data.success) {
+                const demo = data.demo_otp
+                    ? ` Demo OTP (dev mode): <strong>${data.demo_otp}</strong>`
+                    : "";
+                otpStatus.innerHTML = `<span class='text-success'>${data.message}</span>${demo}`;
+                startOtpAutoRead(otpInput, otpStatus, verifyOtpFlow);
+                return;
+            }
+
+            otpStatus.innerHTML = `<span class='text-danger'>${data.message || "Failed to send OTP."}</span>`;
+        });
+    }
+
+    if (verifyOtpBtn) {
+        verifyOtpBtn.addEventListener("click", verifyOtpFlow);
     }
 });

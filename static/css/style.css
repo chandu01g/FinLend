@@ -48,6 +48,12 @@ body {
     background: linear-gradient(90deg, #083f6d, #095a97);
 }
 
+.otp-box {
+    border: 1px solid #cbd5e1;
+    background: #f8fbff;
+    border-radius: 10px;
+}
+
 .result-box {
     min-height: 38px;
     border-radius: 10px;
