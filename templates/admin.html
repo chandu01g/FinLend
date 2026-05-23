@@ -1,31 +1,58 @@
 {% extends "base.html" %}
 {% block title %}Admin Login - FinLend{% endblock %}
+{% block body_class %}login-body{% endblock %}
+{% block main_class %}login-main py-0{% endblock %}
+{% block content_container_class %}container-fluid px-3 px-lg-4{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-6 col-lg-5">
-        <div class="card border-0 shadow finlend-card">
-            <div class="card-body p-4">
-                <h3 class="mb-3 text-center">Admin Login</h3>
-                <p class="text-muted text-center">Manage users and loan approvals.</p>
+<section class="login-scene admin-scene">
+    <div class="login-shell row g-0">
+        <div class="col-lg-7 login-hero admin-hero">
+            <div class="hero-bg-grid"></div>
+            <div class="hero-orbit"></div>
+
+            <span class="coin coin-a"></span>
+            <span class="coin coin-c"></span>
+            <span class="coin coin-d"></span>
+
+            <div class="hero-copy">
+                <p class="hero-kicker">Administrative control center</p>
+                <h1>Review faster.<br><span>Approve smarter.</span></h1>
+                <p class="hero-subtitle">
+                    Access complete visibility across users, loan applications, and repayment projections from a single operations console.
+                </p>
+
+                <div class="hero-points">
+                    <div>Approve or reject applications</div>
+                    <div>Monitor platform loan stats</div>
+                    <div>Audit-ready history records</div>
+                    <div>Secure role-based access</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5 login-panel admin-panel">
+            <div class="login-form-card admin-form-card">
+                <h2>Admin Login</h2>
+                <p class="muted">Authenticate to manage user approvals and lending operations.</p>
 
                 <form method="POST" novalidate>
                     <div class="mb-3">
                         <label class="form-label">Username</label>
-                        <input type="text" class="form-control" name="username" required>
+                        <input type="text" class="form-control login-input" name="username" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Password</label>
-                        <input type="password" class="form-control" name="password" required>
+                        <input type="password" class="form-control login-input" name="password" required>
                     </div>
-                    <button class="btn btn-dark w-100" type="submit">Login as Admin</button>
+                    <button class="btn btn-admin-submit w-100" type="submit">Login as Admin</button>
                 </form>
 
-                <p class="mt-3 mb-0 text-center">
-                    <a href="{{ url_for('login') }}" class="small">Back to user login</a>
+                <p class="login-foot-note mb-0 mt-3">
+                    Need user access? <a href="{{ url_for('login') }}">Back to user login</a>
                 </p>
             </div>
         </div>
     </div>
-</div>
+</section>
 {% endblock %}

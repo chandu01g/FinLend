@@ -74,3 +74,24 @@ CREATE INDEX idx_phone_otps_phone_purpose ON phone_otps(phone, purpose);
 -- app.py auto-creates this default admin when admin table is empty:
 -- username: admin
 -- password: admin123
+CREATE TABLE IF NOT EXISTS phone_otps (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    phone VARCHAR(20) NOT NULL,
+    purpose VARCHAR(30) NOT NULL,
+    otp_hash VARCHAR(255) NOT NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    is_verified TINYINT(1) NOT NULL DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    verified_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_phone_otps_phone_purpose ON phone_otps(phone, purpose);
+   
+
+ALTER TABLE loan_applications ADD COLUMN annual_interest_rate DECIMAL(5,2) NOT NULL DEFAULT 10.00;
+ALTER TABLE loan_applications ADD COLUMN tenure_months INT NOT NULL DEFAULT 12;
+ALTER TABLE loan_applications ADD COLUMN emi_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+ALTER TABLE loan_applications ADD COLUMN total_interest DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+ALTER TABLE loan_applications ADD COLUMN total_payable DECIMAL(12,2) NOT NULL DEFAULT 0.00;

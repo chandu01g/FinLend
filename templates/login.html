@@ -1,38 +1,78 @@
 {% extends "base.html" %}
 {% block title %}Login - FinLend{% endblock %}
+{% block body_class %}login-body{% endblock %}
+{% block main_class %}login-main py-0{% endblock %}
+{% block content_container_class %}container-fluid px-3 px-lg-4{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-6 col-lg-5">
-        <div class="card border-0 shadow finlend-card">
-            <div class="card-body p-4">
-                <h3 class="mb-3 text-center">Welcome Back</h3>
-                <p class="text-muted text-center">Login to manage your loans.</p>
+<section class="login-scene">
+    <div class="login-shell row g-0">
+        <div class="col-lg-7 login-hero">
+            <div class="hero-bg-grid"></div>
+            <div class="hero-orbit"></div>
+
+            <span class="coin coin-a"></span>
+            <span class="coin coin-b"></span>
+            <span class="coin coin-c"></span>
+            <span class="coin coin-d"></span>
+            <span class="coin coin-e"></span>
+
+            <div class="hero-copy">
+                <p class="hero-kicker">Loan approvals in under 60 seconds</p>
+                <h1>Borrow smarter.<br><span>Grow faster.</span></h1>
+                <p class="hero-subtitle">
+                    Instant loan decisions, transparent rates, and flexible repayments in one secure workspace.
+                </p>
+
+                <div class="hero-points">
+                    <div>Fast decision engine</div>
+                    <div>Bank-grade security</div>
+                    <div>No hidden processing fee</div>
+                    <div>Clear EMI and interest details</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5 login-panel">
+            <div class="login-form-card">
+                <h2>Welcome back</h2>
+                <p class="muted">Sign in to manage your loans and repayments</p>
+
+                <div class="social-row">
+                    <button type="button" class="btn social-btn">Google</button>
+                    <button type="button" class="btn social-btn">Apple</button>
+                </div>
+
+                <div class="form-divider"><span>or continue with email</span></div>
 
                 <form method="POST" novalidate>
                     <div class="mb-3">
-                        <label class="form-label">Email</label>
-                        <input type="email" class="form-control" name="email" required>
+                        <label class="form-label">Email address</label>
+                        <input type="email" class="form-control login-input" name="email" placeholder="you@company.com" required>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Password</label>
-                        <input type="password" class="form-control" name="password" required>
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label class="form-label mb-0">Password</label>
+                            <a href="#" class="tiny-link" onclick="return false;">Forgot password?</a>
+                        </div>
+                        <input type="password" class="form-control login-input" name="password" placeholder="Enter your password" required>
                     </div>
-                    <button class="btn btn-finlend w-100" type="submit">Login</button>
+                    <div class="form-check mt-3 mb-3">
+                        <input class="form-check-input" type="checkbox" id="remember-me">
+                        <label class="form-check-label" for="remember-me">Keep me signed in for 30 days</label>
+                    </div>
+
+                    <button class="btn btn-login-submit w-100" type="submit">Sign in to dashboard</button>
                 </form>
 
-                <p class="mt-3 mb-0 text-center small text-muted">
-                    Phone verification is completed during registration using OTP.
+                <p class="login-foot-note">
+                    New to FinLend? <a class="money-transition-link" href="{{ url_for('register') }}">Create account</a>
                 </p>
-
-                <p class="mt-2 mb-0 text-center">
-                    New user? <a href="{{ url_for('register') }}">Create account</a>
-                </p>
-                <p class="text-center mt-2 mb-0">
-                    <a href="{{ url_for('admin_login') }}" class="small">Admin Login</a>
+                <p class="login-foot-note mb-0">
+                    Admin access? <a class="money-transition-link" href="{{ url_for('admin_login') }}">Login here</a>
                 </p>
             </div>
         </div>
     </div>
-</div>
+</section>
 {% endblock %}

@@ -3,9 +3,10 @@ import random
 import re
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import mysql.connector
+import requests
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -98,6 +99,246 @@ def check_eligibility(income: float, loan_amount: float) -> bool:
     - Maximum loan: 20x monthly income
     """
     return income >= 15000 and loan_amount <= (income * 20)
+
+
+def format_phone_for_textlocal(phone: str) -> str:
+    """Convert user phone input into Textlocal-compatible international format."""
+    digits = normalize_phone(phone)
+    country_code = re.sub(r"\D", "", app.config.get("TEXTLOCAL_COUNTRY_CODE", "91")) or "91"
+
+    if digits.startswith(country_code):
+        return digits
+    if len(digits) == 10:
+        return f"{country_code}{digits}"
+    if len(digits) == 11 and digits.startswith("0"):
+        return f"{country_code}{digits[1:]}"
+    return digits
+
+
+def send_textlocal_sms_otp(phone: str, otp_code: str) -> Tuple[bool, str]:
+    """Send OTP using Textlocal API."""
+    api_key = app.config.get("TEXTLOCAL_API_KEY", "").strip()
+    api_url = app.config.get("TEXTLOCAL_API_URL", "https://api.txtlocal.in/send/").strip()
+    sender = app.config.get("TEXTLOCAL_SENDER", "").strip()
+    dlt_template_id = app.config.get("TEXTLOCAL_DLT_TE_ID", "").strip()
+    use_test_mode = app.config.get("TEXTLOCAL_TEST_MODE", False)
+
+    if not api_key:
+        return False, "Textlocal API key is missing. Set TEXTLOCAL_API_KEY in .env."
+
+    formatted_number = format_phone_for_textlocal(phone)
+    sms_template = app.config.get(
+        "OTP_SMS_TEMPLATE",
+        "Your FinLend OTP is {otp}. Valid for {expiry_minutes} minutes. Do not share this code.",
+    )
+    message = sms_template.format(otp=otp_code, expiry_minutes=OTP_EXPIRY_MINUTES)
+
+    payload = {
+        "apikey": api_key,
+        "numbers": formatted_number,
+        "message": message,
+    }
+    if sender:
+        payload["sender"] = sender
+    if dlt_template_id:
+        payload["dlt_te_id"] = dlt_template_id
+    if use_test_mode:
+        payload["test"] = "1"
+
+    try:
+        response = requests.post(api_url, data=payload, timeout=15)
+    except requests.RequestException as exc:
+        return False, f"Textlocal request failed: {exc}"
+
+    if response.status_code >= 400:
+        return False, f"Textlocal HTTP error {response.status_code}: {response.text[:200]}"
+
+    try:
+        data = response.json()
+    except ValueError:
+        return False, "Textlocal returned a non-JSON response."
+
+    if data.get("status") == "success":
+        return True, "OTP sent successfully."
+
+    errors = data.get("errors") or []
+    if errors and isinstance(errors, list):
+        first_error = errors[0]
+        if isinstance(first_error, dict):
+            error_message = first_error.get("message") or first_error.get("error")
+            if error_message:
+                return False, error_message
+
+    return False, "Textlocal failed to send OTP. Check sender ID, template content, and account balance."
+
+
+def format_phone_for_fast2sms(phone: str) -> str:
+    """Convert phone into Fast2SMS-compatible 10-digit Indian format."""
+    digits = normalize_phone(phone)
+    if len(digits) == 12 and digits.startswith("91"):
+        return digits[2:]
+    if len(digits) == 11 and digits.startswith("0"):
+        return digits[1:]
+    return digits
+
+
+def send_fast2sms_sms_otp(phone: str, otp_code: str) -> Tuple[bool, str]:
+    """Send OTP using Fast2SMS API."""
+    api_key = app.config.get("FAST2SMS_API_KEY", "").strip()
+    api_url = app.config.get("FAST2SMS_API_URL", "https://www.fast2sms.com/dev/bulkV2").strip()
+    route = app.config.get("FAST2SMS_ROUTE", "q").strip() or "q"
+    language = app.config.get("FAST2SMS_LANGUAGE", "english").strip() or "english"
+    flash = app.config.get("FAST2SMS_FLASH", "0").strip() or "0"
+    sender_id = app.config.get("FAST2SMS_SENDER_ID", "").strip()
+
+    if not api_key:
+        return False, "Fast2SMS API key is missing. Set FAST2SMS_API_KEY in .env."
+
+    number = format_phone_for_fast2sms(phone)
+    if not re.fullmatch(r"\d{10}", number):
+        return False, "Fast2SMS requires a valid 10-digit Indian mobile number."
+
+    sms_template = app.config.get(
+        "OTP_SMS_TEMPLATE",
+        "Your FinLend OTP is {otp}. Valid for {expiry_minutes} minutes. Do not share this code.",
+    )
+    message = sms_template.format(otp=otp_code, expiry_minutes=OTP_EXPIRY_MINUTES)
+
+    payload = {
+        "route": route,
+        "message": message,
+        "language": language,
+        "flash": flash,
+        "numbers": number,
+    }
+    if sender_id:
+        payload["sender_id"] = sender_id
+
+    headers = {
+        "authorization": api_key,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=15)
+    except requests.RequestException as exc:
+        return False, f"Fast2SMS request failed: {exc}"
+
+    if response.status_code >= 400:
+        return False, f"Fast2SMS HTTP error {response.status_code}: {response.text[:200]}"
+
+    try:
+        data = response.json()
+    except ValueError:
+        return False, "Fast2SMS returned a non-JSON response."
+
+    if data.get("return") is True:
+        return True, "OTP sent successfully."
+
+    message_value = data.get("message")
+    if isinstance(message_value, list) and message_value:
+        return False, str(message_value[0])
+    if isinstance(message_value, str) and message_value.strip():
+        return False, message_value
+
+    return False, "Fast2SMS failed to send OTP. Check API key, route, and account balance."
+
+
+def format_phone_for_twilio(phone: str) -> str:
+    """Convert phone input into E.164 format for Twilio (example: +917893690240)."""
+    digits = normalize_phone(phone)
+    country_code = re.sub(r"\D", "", app.config.get("TWILIO_COUNTRY_CODE", "91")) or "91"
+
+    if digits.startswith(country_code):
+        return f"+{digits}"
+    if len(digits) == 10:
+        return f"+{country_code}{digits}"
+    if len(digits) == 11 and digits.startswith("0"):
+        return f"+{country_code}{digits[1:]}"
+    if digits.startswith("+"):
+        return digits
+    return f"+{digits}"
+
+
+def send_twilio_verify_otp(phone: str) -> Tuple[bool, str]:
+    """Start Twilio Verify OTP flow (Twilio generates and sends the OTP)."""
+    account_sid = app.config.get("TWILIO_ACCOUNT_SID", "").strip()
+    auth_token = app.config.get("TWILIO_AUTH_TOKEN", "").strip()
+    service_sid = app.config.get("TWILIO_VERIFY_SERVICE_SID", "").strip()
+    base_url = app.config.get("TWILIO_VERIFY_API_URL", "https://verify.twilio.com/v2").strip().rstrip("/")
+
+    if not account_sid or not auth_token or not service_sid:
+        return (
+            False,
+            "Twilio credentials are missing. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_VERIFY_SERVICE_SID in .env.",
+        )
+
+    to_number = format_phone_for_twilio(phone)
+    endpoint = f"{base_url}/Services/{service_sid}/Verifications"
+    payload = {"To": to_number, "Channel": "sms"}
+
+    try:
+        response = requests.post(endpoint, auth=(account_sid, auth_token), data=payload, timeout=15)
+    except requests.RequestException as exc:
+        return False, f"Twilio request failed: {exc}"
+
+    if response.status_code >= 400:
+        return False, f"Twilio HTTP error {response.status_code}: {response.text[:300]}"
+
+    try:
+        data = response.json()
+    except ValueError:
+        return False, "Twilio returned a non-JSON response."
+
+    status = str(data.get("status", "")).lower()
+    if status in {"pending", "approved"}:
+        return True, "OTP sent successfully."
+
+    twilio_message = data.get("message")
+    if isinstance(twilio_message, str) and twilio_message.strip():
+        return False, twilio_message
+    return False, "Twilio failed to send OTP."
+
+
+def verify_twilio_sms_otp(phone: str, otp_code: str) -> Tuple[bool, str]:
+    """Verify OTP code against Twilio Verify service."""
+    account_sid = app.config.get("TWILIO_ACCOUNT_SID", "").strip()
+    auth_token = app.config.get("TWILIO_AUTH_TOKEN", "").strip()
+    service_sid = app.config.get("TWILIO_VERIFY_SERVICE_SID", "").strip()
+    base_url = app.config.get("TWILIO_VERIFY_API_URL", "https://verify.twilio.com/v2").strip().rstrip("/")
+
+    if not account_sid or not auth_token or not service_sid:
+        return (
+            False,
+            "Twilio credentials are missing. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_VERIFY_SERVICE_SID in .env.",
+        )
+
+    to_number = format_phone_for_twilio(phone)
+    endpoint = f"{base_url}/Services/{service_sid}/VerificationCheck"
+    payload = {"To": to_number, "Code": otp_code}
+
+    try:
+        response = requests.post(endpoint, auth=(account_sid, auth_token), data=payload, timeout=15)
+    except requests.RequestException as exc:
+        return False, f"Twilio request failed: {exc}"
+
+    if response.status_code >= 400:
+        return False, f"Twilio HTTP error {response.status_code}: {response.text[:300]}"
+
+    try:
+        data = response.json()
+    except ValueError:
+        return False, "Twilio returned a non-JSON response."
+
+    status = str(data.get("status", "")).lower()
+    is_valid = bool(data.get("valid", False))
+    if status == "approved" or is_valid:
+        return True, "Phone number verified successfully."
+
+    twilio_message = data.get("message")
+    if isinstance(twilio_message, str) and twilio_message.strip():
+        return False, twilio_message
+    return False, "Invalid OTP."
 
 
 def calculate_loan_breakdown(principal: float, annual_rate: float, months: int) -> Dict[str, float]:
@@ -229,6 +470,27 @@ def send_otp():
             (phone, purpose, code_hash, expires_at),
         )
 
+        provider = (app.config.get("OTP_PROVIDER", "demo") or "demo").lower()
+        if provider in {"textlocal", "fast2sms", "twilio"}:
+            if provider == "textlocal":
+                sms_sent, sms_message = send_textlocal_sms_otp(phone, code)
+            elif provider == "fast2sms":
+                sms_sent, sms_message = send_fast2sms_sms_otp(phone, code)
+            else:
+                sms_sent, sms_message = send_twilio_verify_otp(phone)
+
+            if not sms_sent:
+                run_modify("DELETE FROM phone_otps WHERE phone = %s AND purpose = %s", (phone, purpose))
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "message": f"Failed to send OTP SMS: {sms_message}",
+                        }
+                    ),
+                    500,
+                )
+
         response = {
             "success": True,
             "message": "OTP generated successfully. Check your SMS inbox.",
@@ -237,10 +499,24 @@ def send_otp():
 
         # Development convenience: show OTP in UI when debug is enabled.
         if app.config.get("OTP_DEBUG_MODE", False):
-            response["demo_otp"] = code
-            response["demo_sms_format"] = (
-                f"<#> FinLend OTP is {code}. Do not share this code.\n"
-                f"@{app.config['OTP_AUTOFILL_ORIGIN']} #{code}"
+            if provider == "twilio":
+                response["debug_note"] = "Twilio Verify is enabled. OTP is generated by Twilio and sent to the phone."
+            else:
+                response["demo_otp"] = code
+                response["demo_sms_format"] = (
+                    f"<#> FinLend OTP is {code}. Do not share this code.\n"
+                    f"@{app.config['OTP_AUTOFILL_ORIGIN']} #{code}"
+                )
+        elif provider not in {"textlocal", "fast2sms", "twilio"}:
+            run_modify("DELETE FROM phone_otps WHERE phone = %s AND purpose = %s", (phone, purpose))
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "message": "No SMS provider configured. Set OTP_PROVIDER=textlocal|fast2sms|twilio or enable OTP_DEBUG_MODE.",
+                    }
+                ),
+                500,
             )
 
         return jsonify(response)
@@ -288,9 +564,17 @@ def verify_otp():
         if otp_row["attempts"] >= OTP_MAX_ATTEMPTS:
             return jsonify({"success": False, "message": "Maximum OTP attempts reached. Please request a new OTP."}), 429
 
-        if not check_password_hash(otp_row["otp_hash"], otp):
-            run_modify("UPDATE phone_otps SET attempts = attempts + 1 WHERE id = %s", (otp_row["id"],))
-            return jsonify({"success": False, "message": "Invalid OTP."}), 400
+        provider = (app.config.get("OTP_PROVIDER", "demo") or "demo").lower()
+
+        if provider == "twilio":
+            verified, verify_message = verify_twilio_sms_otp(phone, otp)
+            if not verified:
+                run_modify("UPDATE phone_otps SET attempts = attempts + 1 WHERE id = %s", (otp_row["id"],))
+                return jsonify({"success": False, "message": f"OTP verification failed: {verify_message}"}), 400
+        else:
+            if not check_password_hash(otp_row["otp_hash"], otp):
+                run_modify("UPDATE phone_otps SET attempts = attempts + 1 WHERE id = %s", (otp_row["id"],))
+                return jsonify({"success": False, "message": "Invalid OTP."}), 400
 
         run_modify(
             "UPDATE phone_otps SET is_verified = 1, verified_at = UTC_TIMESTAMP() WHERE id = %s",

@@ -80,42 +80,49 @@ function renderApplyLoanBreakdown() {
     `;
 }
 
-let otpAbortController = null;
-
-function startOtpAutoRead(otpInput, statusEl, verifyCallback) {
-    const webOtpSupported = "OTPCredential" in window;
-    const secureForWebOtp =
-        window.location.protocol === "https:" ||
-        window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1";
-
-    if (!webOtpSupported || !secureForWebOtp || !otpInput) {
+function triggerMoneyTransitionAndNavigate(destinationUrl, originX, originY) {
+    if (!destinationUrl) {
         return;
     }
 
-    if (otpAbortController) {
-        otpAbortController.abort();
+    const existing = document.querySelector(".money-transition-layer");
+    if (existing) {
+        existing.remove();
     }
 
-    otpAbortController = new AbortController();
+    const layer = document.createElement("div");
+    layer.className = "money-transition-layer";
+    document.body.appendChild(layer);
 
-    navigator.credentials
-        .get({ otp: { transport: ["sms"] }, signal: otpAbortController.signal })
-        .then((otpCredential) => {
-            if (!otpCredential || !otpCredential.code) {
-                return;
-            }
-            otpInput.value = otpCredential.code;
-            if (statusEl) {
-                statusEl.innerHTML = "<span class='text-info'>OTP auto-captured from SMS. Verifying...</span>";
-            }
-            if (verifyCallback) {
-                verifyCallback();
-            }
-        })
-        .catch(() => {
-            // Ignore WebOTP failures. Manual entry is fallback.
-        });
+    const x = Number.isFinite(originX) ? originX : window.innerWidth / 2;
+    const y = Number.isFinite(originY) ? originY : window.innerHeight / 2;
+
+    for (let i = 0; i < 24; i += 1) {
+        const piece = document.createElement("span");
+        piece.className = i % 4 === 0 ? "money-transition-note" : "money-transition-coin";
+        piece.style.left = `${x}px`;
+        piece.style.top = `${y}px`;
+
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 180 + Math.random() * 700;
+        const tx = Math.cos(angle) * radius;
+        const ty = Math.sin(angle) * radius;
+        const rotate = `${Math.floor(Math.random() * 900) - 450}deg`;
+
+        piece.style.setProperty("--tx", `${tx}px`);
+        piece.style.setProperty("--ty", `${ty}px`);
+        piece.style.setProperty("--rot", rotate);
+        piece.style.animationDelay = `${Math.random() * 0.12}s`;
+        layer.appendChild(piece);
+    }
+
+    requestAnimationFrame(() => {
+        layer.classList.add("active");
+    });
+
+    setTimeout(() => {
+        window.location.href = destinationUrl;
+    }, 620);
 }
 
 async function postJson(url, payload) {
@@ -257,7 +264,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     ? ` Demo OTP (dev mode): <strong>${data.demo_otp}</strong>`
                     : "";
                 otpStatus.innerHTML = `<span class='text-success'>${data.message}</span>${demo}`;
-                startOtpAutoRead(otpInput, otpStatus, verifyOtpFlow);
                 return;
             }
 
@@ -268,4 +274,26 @@ document.addEventListener("DOMContentLoaded", () => {
     if (verifyOtpBtn) {
         verifyOtpBtn.addEventListener("click", verifyOtpFlow);
     }
+
+    const transitionLinks = document.querySelectorAll("a.money-transition-link");
+    transitionLinks.forEach((link) => {
+        link.addEventListener("click", (event) => {
+            if (event.defaultPrevented) {
+                return;
+            }
+
+            // Respect common browser multi-tab/new-window shortcuts.
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+                return;
+            }
+
+            const href = link.getAttribute("href");
+            if (!href || href.startsWith("#")) {
+                return;
+            }
+
+            event.preventDefault();
+            triggerMoneyTransitionAndNavigate(link.href, event.clientX, event.clientY);
+        });
+    });
 });
